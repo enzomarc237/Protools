@@ -1,11 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { motion } from "framer-motion"
-import { Sparkles, ArrowRight, Loader2, CheckCircle, Wand2 } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { Sparkles, ArrowRight, Loader2, CheckCircle, Wand2, LayoutTemplate, ChevronRight } from "lucide-react"
 import { api } from "@/lib/trpc"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { templates, categories, Template } from "@/lib/templates"
 
 const documentTypes = [
   { id: "prd", label: "Product Requirements Document", description: "Comprehensive PRD with user stories, requirements, and success metrics" },
@@ -17,6 +18,8 @@ const documentTypes = [
 export default function GeneratePage() {
   const router = useRouter()
   const [step, setStep] = useState(1)
+  const [showTemplates, setShowTemplates] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -27,11 +30,23 @@ export default function GeneratePage() {
   })
   const [isGenerating, setIsGenerating] = useState(false)
   const [generationProgress, setGenerationProgress] = useState<{[key: string]: string}>({})
-  const [generatedProjectId, setGeneratedProjectId] = useState<string | null>(null)
   const [error, setError] = useState("")
 
   const createProject = api.project.create.useMutation()
-  const generateDocument = api.ai.generateDocumentMutation.useMutation()
+  const generateDocument = api.ai.generateDocument.useMutation()
+
+  const filteredTemplates = selectedCategory === "all" 
+    ? templates 
+    : templates.filter(t => t.category === selectedCategory)
+
+  const selectTemplate = (template: Template) => {
+    setFormData(prev => ({
+      ...prev,
+      ...template.defaultData,
+    }))
+    setShowTemplates(false)
+    toast.success(`Template "${template.title}" applied`)
+  }
 
   const handleSubmit = async () => {
     if (step < 3) {
@@ -52,8 +67,6 @@ export default function GeneratePage() {
         constraints: formData.constraints || undefined,
         techStack: formData.techStack || undefined,
       })
-
-      setGeneratedProjectId(project.id)
 
       // Generate documents sequentially
       for (const type of formData.selectedTypes) {
@@ -172,6 +185,73 @@ export default function GeneratePage() {
           </div>
         ))}
       </div>
+
+      {/* Template Selector */}
+      {step === 1 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6"
+        >
+          <button
+            onClick={() => setShowTemplates(!showTemplates)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl font-medium hover:bg-purple-200 transition-colors"
+          >
+            <LayoutTemplate className="w-5 h-5" />
+            {showTemplates ? "Hide Templates" : "Start from Template"}
+          </button>
+
+          <AnimatePresence>
+            {showTemplates && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100"
+              >
+                {/* Category Filter */}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {categories.map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => setSelectedCategory(cat.id)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        selectedCategory === cat.id
+                          ? "bg-slate-900 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Templates Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {filteredTemplates.map((template) => (
+                    <button
+                      key={template.id}
+                      onClick={() => selectTemplate(template)}
+                      className="text-left p-4 rounded-xl border-2 border-slate-200 hover:border-purple-500 hover:bg-purple-50 transition-all group"
+                    >
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-slate-900 group-hover:text-purple-700">
+                          {template.title}
+                        </h4>
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-purple-500" />
+                      </div>
+                      <p className="text-sm text-slate-500 mt-1">{template.description}</p>
+                      <span className="inline-block mt-2 text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded capitalize">
+                        {template.category}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
 
       {/* Step Content */}
       <motion.div

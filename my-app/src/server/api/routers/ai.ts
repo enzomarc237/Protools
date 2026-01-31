@@ -1,7 +1,7 @@
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc"
 import { z } from "zod"
 import { AIService } from "@/server/ai/service"
-import { observable } from "@trpc/server/observable"
+import { TRPCError } from "@trpc/server"
 
 const generateInput = z.object({
   projectId: z.string(),
@@ -17,32 +17,13 @@ const generateInput = z.object({
 export const aiRouter = createTRPCRouter({
   generateDocument: protectedProcedure
     .input(generateInput)
-    .subscription(async function* ({ ctx, input }) {
-      const aiService = new AIService(ctx.prisma, ctx.session.user.id)
-      
-      try {
-        const stream = await aiService.generateDocument(input)
-        
-        for await (const chunk of stream) {
-          yield chunk
-        }
-      } catch (error) {
-        console.error("AI generation error:", error)
-        throw error
-      }
-    }),
-
-  generateDocumentMutation: protectedProcedure
-    .input(generateInput)
     .mutation(async ({ ctx, input }) => {
       const aiService = new AIService(ctx.prisma, ctx.session.user.id)
       
-      const chunks: string[] = []
-      
       try {
-        const stream = await aiService.generateDocument(input)
+        const chunks: string[] = []
         
-        for await (const chunk of stream) {
+        for await (const chunk of aiService.generateDocument(input)) {
           if (chunk.chunk) {
             chunks.push(chunk.chunk)
           }
@@ -51,7 +32,10 @@ export const aiRouter = createTRPCRouter({
         return { success: true, content: chunks.join("") }
       } catch (error) {
         console.error("AI generation error:", error)
-        throw error
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "Failed to generate document",
+        })
       }
     }),
 
@@ -61,13 +45,23 @@ export const aiRouter = createTRPCRouter({
       section: z.string(),
       instruction: z.string(),
     }))
-    .mutation(async function* ({ ctx, input }) {
+    .mutation(async ({ ctx, input }) => {
       const aiService = new AIService(ctx.prisma, ctx.session.user.id)
       
-      const stream = await aiService.refineSection(input)
-      
-      for await (const chunk of stream) {
-        yield chunk
+      try {
+        const chunks: string[] = []
+        
+        for await (const chunk of aiService.refineSection(input)) {
+          chunks.push(chunk.chunk)
+        }
+        
+        return { success: true, content: chunks.join("") }
+      } catch (error) {
+        console.error("Refinement error:", error)
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error instanceof Error ? error.message : "Failed to refine section",
+        })
       }
     }),
 })

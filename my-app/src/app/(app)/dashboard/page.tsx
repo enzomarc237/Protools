@@ -2,19 +2,40 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { Plus, FileText, Sparkles, Settings, Search, Filter, LayoutGrid, List } from "lucide-react"
+import { Plus, FileText, Sparkles, Settings, Search, LayoutGrid, List, Trash2, MoreVertical } from "lucide-react"
 import Link from "next/link"
 import { api } from "@/lib/trpc"
+import { toast } from "sonner"
 
 export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"grid" | "list">("list")
-  const { data: projects, isLoading } = api.project.getAll.useQuery()
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  
+  const { data: projects, isLoading, refetch } = api.project.getAll.useQuery()
+  const deleteProject = api.project.delete.useMutation({
+    onSuccess: () => {
+      refetch()
+      toast.success("Project deleted")
+    },
+    onError: () => {
+      toast.error("Failed to delete project")
+    },
+  })
 
   const filteredProjects = projects?.filter(project => 
     project.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     project.description.toLowerCase().includes(searchQuery.toLowerCase())
   )
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this project? This action cannot be undone.")) {
+      return
+    }
+    setDeletingId(id)
+    await deleteProject.mutateAsync({ id })
+    setDeletingId(null)
+  }
 
   return (
     <div>
@@ -162,38 +183,46 @@ export default function DashboardPage() {
         ) : viewMode === "grid" ? (
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredProjects?.map((project) => (
-              <Link
+              <div
                 key={project.id}
-                href={`/project/${project.id}`}
-                className="group p-6 rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all"
+                className="group relative p-6 rounded-xl border border-slate-200 hover:border-blue-300 hover:shadow-md transition-all"
               >
-                <div className="flex items-start justify-between mb-3">
-                  <h3 className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
-                    {project.title}
-                  </h3>
-                  {project.status === "generating" && (
-                    <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
-                      Generating...
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm text-slate-500 line-clamp-2 mb-4">{project.description}</p>
-                <div className="flex items-center justify-between text-xs text-slate-400">
-                  <span>{project.documents.length} documents</span>
-                  <span>{new Date(project.createdAt).toLocaleDateString()}</span>
-                </div>
-              </Link>
+                <Link href={`/project/${project.id}`}>
+                  <div className="flex items-start justify-between mb-3">
+                    <h3 className="font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
+                      {project.title}
+                    </h3>
+                    {project.status === "generating" && (
+                      <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs font-medium rounded-full">
+                        Generating...
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-500 line-clamp-2 mb-4">{project.description}</p>
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>{project.documents.length} documents</span>
+                    <span>{new Date(project.createdAt).toLocaleDateString()}</span>
+                  </div>
+                </Link>
+                <button
+                  onClick={() => handleDelete(project.id)}
+                  disabled={deletingId === project.id}
+                  className="absolute top-4 right-4 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                  title="Delete project"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
             {filteredProjects?.map((project) => (
-              <Link
+              <div
                 key={project.id}
-                href={`/project/${project.id}`}
-                className="flex items-center justify-between p-6 hover:bg-slate-50 transition-colors"
+                className="group flex items-center justify-between p-6 hover:bg-slate-50 transition-colors"
               >
-                <div className="flex-1 min-w-0">
+                <Link href={`/project/${project.id}`} className="flex-1 min-w-0">
                   <div className="flex items-center gap-3">
                     <h3 className="font-semibold text-slate-900">{project.title}</h3>
                     {project.status === "generating" && (
@@ -212,8 +241,16 @@ export default function DashboardPage() {
                       {new Date(project.createdAt).toLocaleDateString()}
                     </span>
                   </div>
-                </div>
-              </Link>
+                </Link>
+                <button
+                  onClick={() => handleDelete(project.id)}
+                  disabled={deletingId === project.id}
+                  className="ml-4 p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  title="Delete project"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         )}

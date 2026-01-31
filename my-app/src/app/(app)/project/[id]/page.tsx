@@ -1,14 +1,14 @@
 "use client"
 
 import { useState } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { FileText, Download, Loader2, Save, Edit2, Eye, History } from "lucide-react"
+import { FileText, Download, Loader2, Save, Edit2, Eye, History, Trash2, AlertCircle } from "lucide-react"
 import { api } from "@/lib/trpc"
-import { toast } from "sonner"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { exportDocument, downloadBlob, ExportFormat } from "@/lib/export"
+import { toast } from "sonner"
 
 const documentTypeLabels: Record<string, string> = {
   prd: "PRD",
@@ -19,6 +19,7 @@ const documentTypeLabels: Record<string, string> = {
 
 export default function ProjectPage() {
   const { id } = useParams()
+  const router = useRouter()
   const [activeDoc, setActiveDoc] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportFormat, setExportFormat] = useState<ExportFormat | null>(null)
@@ -42,6 +43,27 @@ export default function ProjectPage() {
     },
   })
 
+  const deleteDocument = api.document.delete.useMutation({
+    onSuccess: () => {
+      refetch()
+      setActiveDoc(null)
+      toast.success("Document deleted")
+    },
+    onError: () => {
+      toast.error("Failed to delete document")
+    },
+  })
+
+  const deleteProject = api.project.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Project deleted")
+      router.push("/dashboard")
+    },
+    onError: () => {
+      toast.error("Failed to delete project")
+    },
+  })
+
   const selectedDocument = project?.documents.find((d) => d.id === activeDoc)
 
   const handleEdit = () => {
@@ -56,6 +78,17 @@ export default function ProjectPage() {
       id: selectedDocument.id,
       content: editContent,
     })
+  }
+
+  const handleDeleteDocument = () => {
+    if (!selectedDocument) return
+    if (!confirm("Are you sure you want to delete this document?")) return
+    deleteDocument.mutate({ id: selectedDocument.id })
+  }
+
+  const handleDeleteProject = () => {
+    if (!confirm("Are you sure you want to delete this project? All documents will be deleted. This action cannot be undone.")) return
+    deleteProject.mutate({ id: id as string })
   }
 
   const handleExport = async (format: ExportFormat) => {
@@ -75,8 +108,10 @@ export default function ProjectPage() {
       const filename = `${selectedDocument.title.replace(/\s+/g, "_")}${extension}`
       
       downloadBlob(blob, filename)
+      toast.success(`Exported as ${format.toUpperCase()}`)
     } catch (error) {
       console.error("Export error:", error)
+      toast.error("Failed to export document")
     } finally {
       setIsExporting(false)
       setExportFormat(null)
@@ -102,17 +137,26 @@ export default function ProjectPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">{project.title}</h1>
-        <p className="text-slate-600 mt-2">{project.description}</p>
-        <div className="flex flex-wrap gap-4 mt-4 text-sm text-slate-500">
-          {project.targetAudience && (
-            <span>Target: {project.targetAudience}</span>
-          )}
-          {project.techStack && (
-            <span>Tech: {project.techStack}</span>
-          )}
+      <div className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">{project.title}</h1>
+          <p className="text-slate-600 mt-2">{project.description}</p>
+          <div className="flex flex-wrap gap-4 mt-4 text-sm text-slate-500">
+            {project.targetAudience && (
+              <span>Target: {project.targetAudience}</span>
+            )}
+            {project.techStack && (
+              <span>Tech: {project.techStack}</span>
+            )}
+          </div>
         </div>
+        <button
+          onClick={handleDeleteProject}
+          className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+        >
+          <Trash2 className="w-4 h-4" />
+          Delete Project
+        </button>
       </div>
 
       <div className="grid lg:grid-cols-4 gap-6">
@@ -198,6 +242,14 @@ export default function ProjectPage() {
                     >
                       <History className="w-4 h-4" />
                       Versions
+                    </button>
+                    <button
+                      onClick={handleDeleteDocument}
+                      disabled={deleteDocument.isPending}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
                     </button>
                   </div>
                 </div>
