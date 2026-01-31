@@ -5,6 +5,7 @@ import { motion } from "framer-motion"
 import { Sparkles, ArrowRight, Loader2, CheckCircle, Wand2 } from "lucide-react"
 import { api } from "@/lib/trpc"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 const documentTypes = [
   { id: "prd", label: "Product Requirements Document", description: "Comprehensive PRD with user stories, requirements, and success metrics" },
@@ -76,7 +77,9 @@ export default function GeneratePage() {
       router.push(`/project/${project.id}`)
     } catch (err) {
       console.error("Generation error:", err)
-      setError(err instanceof Error ? err.message : "Failed to generate documents")
+      const errorMsg = err instanceof Error ? err.message : "Failed to generate documents"
+      setError(errorMsg)
+      toast.error(errorMsg)
       setIsGenerating(false)
     }
   }

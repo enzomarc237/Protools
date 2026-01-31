@@ -5,6 +5,7 @@ import { useParams } from "next/navigation"
 import { motion } from "framer-motion"
 import { FileText, Download, Loader2, Save, Edit2, Eye, History } from "lucide-react"
 import { api } from "@/lib/trpc"
+import { toast } from "sonner"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { exportDocument, downloadBlob, ExportFormat } from "@/lib/export"
@@ -34,6 +35,10 @@ export default function ProjectPage() {
     onSuccess: () => {
       refetch()
       setIsEditing(false)
+      toast.success("Document saved")
+    },
+    onError: (error) => {
+      toast.error(error.message || "Failed to save document")
     },
   })
 

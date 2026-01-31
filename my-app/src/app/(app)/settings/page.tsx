@@ -14,6 +14,7 @@ import {
   Bot,
 } from "lucide-react"
 import { api } from "@/lib/trpc"
+import { toast } from "sonner"
 
 type ProviderType = "openai" | "openrouter" | "gemini" | "ollama"
 
@@ -55,6 +56,10 @@ export default function SettingsPage() {
   const saveSettings = api.settings.save.useMutation({
     onSuccess: () => {
       utils.settings.get.invalidate()
+      toast.success("Settings saved successfully")
+    },
+    onError: (error) => {
+      toast.error(error.message || "Failed to save settings")
     },
   })
 

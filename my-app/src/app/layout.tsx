@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Inter, Space_Grotesk } from "next/font/google"
 import "./globals.css"
 import { TRPCProvider } from "@/components/providers/trpc-provider"
+import { Toaster } from "sonner"
 
 const inter = Inter({
   variable: "--font-inter",
@@ -31,6 +32,7 @@ export default function RootLayout({
       >
         <TRPCProvider>
           {children}
+          <Toaster position="top-right" richColors />
         </TRPCProvider>
       </body>
     </html>
