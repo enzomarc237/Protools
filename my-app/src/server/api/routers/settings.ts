@@ -25,13 +25,18 @@ export const settingsRouter = createTRPCRouter({
   save: protectedProcedure
     .input(settingsInput)
     .mutation(async ({ ctx, input }) => {
+      // Filter out undefined values to avoid overwriting existing data
+      const data = Object.fromEntries(
+        Object.entries(input).filter(([, v]) => v !== undefined)
+      )
+      
       return ctx.prisma.aISettings.upsert({
         where: { userId: ctx.session.user.id },
         create: {
           ...input,
           userId: ctx.session.user.id,
         },
-        update: input,
+        update: data,
       })
     }),
 

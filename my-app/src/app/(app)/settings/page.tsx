@@ -129,7 +129,12 @@ export default function SettingsPage() {
   }
 
   const handleSave = async () => {
-    await saveSettings.mutateAsync(formData)
+    // Only send apiKey if it was entered (to avoid overwriting saved key with empty string)
+    const dataToSave = {
+      ...formData,
+      apiKey: formData.apiKey || undefined,
+    }
+    await saveSettings.mutateAsync(dataToSave)
   }
 
   if (isLoading) {
@@ -178,13 +183,18 @@ export default function SettingsPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 API Key
+                {settings?.apiKey && (
+                  <span className="ml-2 text-xs text-green-600 font-normal">
+                    ✓ Key saved (enter new one to replace)
+                  </span>
+                )}
               </label>
               <div className="flex gap-2">
                 <input
                   type="password"
                   value={formData.apiKey}
                   onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
-                  placeholder="Enter your API key"
+                  placeholder={settings?.apiKey ? "••••••••••••••••" : "Enter your API key"}
                   className="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
                 />
                 <button
