@@ -6,16 +6,15 @@ import {
   Plus, 
   Sparkles, 
   Trash2, 
-  Grip,
   Lightbulb,
   Target,
   AlertCircle,
   CheckCircle2,
   X,
-  Zap,
   Expand,
-  Settings,
-  Loader2
+  Loader2,
+  Move,
+  MousePointer2
 } from "lucide-react"
 import { api } from "@/lib/trpc"
 import { toast } from "sonner"
@@ -27,6 +26,7 @@ interface Node {
   type: "idea" | "question" | "feature" | "constraint" | "goal"
   x: number
   y: number
+  isLoading?: boolean
 }
 
 const nodeColors: Record<string, string> = {
@@ -54,29 +54,52 @@ export default function BrainstormPage() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [canvasOffset, setCanvasOffset] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
+  const [spacePressed, setSpacePressed] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const dragOffset = useRef({ x: 0, y: 0 })
   const panStart = useRef({ x: 0, y: 0 })
 
   const generateIdeas = api.brainstorm.generateIdeas.useMutation()
   const expandIdea = api.brainstorm.expandIdea.useMutation()
 
-  const addNode = (type: Node["type"], x?: number, y?: number, content?: string) => {
-    const centerX = canvasRef.current ? canvasRef.current.clientWidth / 2 : 400
-    const centerY = canvasRef.current ? canvasRef.current.clientHeight / 2 : 300
-    
+  // Handle spacebar for pan mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        e.preventDefault()
+        setSpacePressed(true)
+      }
+    }
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault()
+        setSpacePressed(false)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
+    }
+  }, [])
+
+  const addNode = (type: Node["type"], x?: number, y?: number, content?: string, isLoading = false) => {
+    const id = Date.now().toString() + Math.random().toString(36).substr(2, 9)
     const newNode: Node = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      id,
       content: content || "",
       type,
-      x: x ?? centerX + (Math.random() - 0.5) * 200,
-      y: y ?? centerY + (Math.random() - 0.5) * 200,
+      x: x ?? 400 + (Math.random() - 0.5) * 100,
+      y: y ?? 300 + (Math.random() - 0.5) * 100,
+      isLoading,
     }
     setNodes(prev => [...prev, newNode])
-    if (!content) {
-      setSelectedNode(newNode.id)
+    if (!content && !isLoading) {
+      setSelectedNode(id)
     }
-    return newNode.id
+    return id
   }
 
   const updateNode = (id: string, updates: Partial<Node>) => {
@@ -88,44 +111,53 @@ export default function BrainstormPage() {
     setSelectedNode(null)
   }
 
-  const handleMouseDown = (e: React.MouseEvent, nodeId: string) => {
+  const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation()
+    e.preventDefault()
     setDraggedNode(nodeId)
     setIsDragging(true)
     setSelectedNode(nodeId)
     
     const node = nodes.find(n => n.id === nodeId)
-    if (node && canvasRef.current) {
-      const rect = canvasRef.current.getBoundingClientRect()
+    if (node && containerRef.current) {
       dragOffset.current = {
-        x: e.clientX - rect.left - node.x,
-        y: e.clientY - rect.top - node.y,
+        x: e.clientX - node.x,
+        y: e.clientY - node.y,
       }
     }
   }
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if (e.target === canvasRef.current || (e.target as HTMLElement).classList.contains("grid-pattern")) {
+    // Only pan if space is pressed or clicking on empty canvas area
+    const target = e.target as HTMLElement
+    const isCanvasClick = target === containerRef.current || target.dataset.canvas === "true"
+    
+    if ((spacePressed || isCanvasClick) && !isDragging) {
+      e.preventDefault()
       setIsPanning(true)
-      panStart.current = { x: e.clientX - canvasOffset.x, y: e.clientY - canvasOffset.y }
+      panStart.current = { 
+        x: e.clientX - canvasOffset.x, 
+        y: e.clientY - canvasOffset.y 
+      }
       setSelectedNode(null)
     }
   }
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging && draggedNode && canvasRef.current) {
-      const rect = canvasRef.current.getBoundingClientRect()
-      const x = e.clientX - rect.left - dragOffset.current.x - canvasOffset.x
-      const y = e.clientY - rect.top - dragOffset.current.y - canvasOffset.y
+    if (isDragging && draggedNode) {
+      e.preventDefault()
+      const x = e.clientX - dragOffset.current.x
+      const y = e.clientY - dragOffset.current.y
       
       updateNode(draggedNode, { x, y })
     } else if (isPanning) {
+      e.preventDefault()
       setCanvasOffset({
         x: e.clientX - panStart.current.x,
         y: e.clientY - panStart.current.y,
       })
     }
-  }, [isDragging, draggedNode, isPanning, canvasOffset])
+  }, [isDragging, draggedNode, isPanning])
 
   const handleMouseUp = () => {
     setIsDragging(false)
@@ -140,33 +172,52 @@ export default function BrainstormPage() {
     }
     
     setIsGenerating(true)
+    
+    // Add loading nodes first
+    const loadingNodeIds: string[] = []
+    for (let i = 0; i < 4; i++) {
+      const angle = (i / 4) * 2 * Math.PI
+      const radius = 150
+      const centerX = canvasRef.current ? canvasRef.current.clientWidth / 2 : 400
+      const centerY = canvasRef.current ? canvasRef.current.clientHeight / 2 : 300
+      const x = centerX + Math.cos(angle) * radius
+      const y = centerY + Math.sin(angle) * radius
+      const id = addNode("idea", x, y, "", true)
+      loadingNodeIds.push(id)
+    }
+    
     try {
-      const existingNodes = nodes.map(n => ({ content: n.content, type: n.type }))
+      const existingNodes = nodes.filter(n => !n.isLoading).map(n => ({ content: n.content, type: n.type }))
       
       const result = await generateIdeas.mutateAsync({
-        projectId: "brainstorm-session", // Using a placeholder since brainstorm isn't tied to a project
         prompt: aiPrompt,
         existingNodes: existingNodes.length > 0 ? existingNodes : undefined,
       })
       
       if (result.ideas && Array.isArray(result.ideas)) {
+        // Remove loading nodes and add real ones
+        setNodes(prev => prev.filter(n => !loadingNodeIds.includes(n.id)))
+        
         const centerX = canvasRef.current ? canvasRef.current.clientWidth / 2 : 400
         const centerY = canvasRef.current ? canvasRef.current.clientHeight / 2 : 300
         
         result.ideas.forEach((idea: any, i: number) => {
           setTimeout(() => {
-            const angle = (i / result.ideas.length) * 2 * Math.PI
-            const radius = 150 + Math.random() * 100
-            const x = centerX + Math.cos(angle) * radius - canvasOffset.x
-            const y = centerY + Math.sin(angle) * radius - canvasOffset.y
+            const angle = (i / result.ideas.length) * 2 * Math.PI - Math.PI / 2
+            const radius = 200
+            const x = centerX + Math.cos(angle) * radius
+            const y = centerY + Math.sin(angle) * radius
             
             addNode(idea.type || "idea", x, y, idea.content)
-          }, i * 300)
+          }, i * 200)
         })
         
         toast.success(`Generated ${result.ideas.length} ideas!`)
       }
     } catch (error: any) {
+      // Remove loading nodes on error
+      setNodes(prev => prev.filter(n => !loadingNodeIds.includes(n.id)))
+      
       console.error("Generation error:", error)
       if (error.message?.includes("AI settings not configured")) {
         toast.error(
@@ -195,28 +246,45 @@ export default function BrainstormPage() {
     }
 
     setIsGenerating(true)
+    
+    // Add loading nodes around the parent
+    const loadingNodeIds: string[] = []
+    for (let i = 0; i < 3; i++) {
+      const angle = Math.random() * 2 * Math.PI
+      const radius = 130 + Math.random() * 50
+      const x = node.x + Math.cos(angle) * radius
+      const y = node.y + Math.sin(angle) * radius
+      const id = addNode("idea", x, y, "", true)
+      loadingNodeIds.push(id)
+    }
+    
     try {
       const result = await expandIdea.mutateAsync({
-        projectId: "brainstorm-session",
         ideaContent: node.content,
         ideaType: node.type,
       })
       
       if (result.ideas && Array.isArray(result.ideas)) {
+        // Remove loading nodes
+        setNodes(prev => prev.filter(n => !loadingNodeIds.includes(n.id)))
+        
         result.ideas.forEach((idea: any, i: number) => {
           setTimeout(() => {
             const angle = Math.random() * 2 * Math.PI
-            const radius = 120 + Math.random() * 80
+            const radius = 130 + Math.random() * 50
             const x = node.x + Math.cos(angle) * radius
             const y = node.y + Math.sin(angle) * radius
             
             addNode(idea.type || "idea", x, y, idea.content)
-          }, i * 200)
+          }, i * 150)
         })
         
         toast.success(`Expanded into ${result.ideas.length} related ideas!`)
       }
     } catch (error: any) {
+      // Remove loading nodes on error
+      setNodes(prev => prev.filter(n => !loadingNodeIds.includes(n.id)))
+      
       console.error("Expand error:", error)
       toast.error(error.message || "Failed to expand idea")
     } finally {
@@ -231,6 +299,12 @@ export default function BrainstormPage() {
       toast.success("Canvas cleared")
     }
   }
+
+  const cursorStyle = spacePressed 
+    ? "cursor-grab" 
+    : isPanning 
+      ? "cursor-grabbing" 
+      : "cursor-default"
 
   return (
     <div className="h-[calc(100vh-6rem)] flex flex-col">
@@ -304,47 +378,48 @@ export default function BrainstormPage() {
       {/* Canvas */}
       <div 
         ref={canvasRef}
-        className="flex-1 bg-slate-50 rounded-2xl border-2 border-slate-200 relative overflow-hidden cursor-grab active:cursor-grabbing"
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onMouseDown={handleCanvasMouseDown}
+        className="flex-1 bg-slate-50 rounded-2xl border-2 border-slate-200 relative overflow-hidden"
       >
-        {/* Grid pattern */}
-        <div 
-          className="grid-pattern absolute inset-0 opacity-30 pointer-events-none"
-          style={{
-            backgroundImage: `
-              linear-gradient(to right, #cbd5e1 1px, transparent 1px),
-              linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)
-            `,
-            backgroundSize: '40px 40px',
-            transform: `translate(${canvasOffset.x % 40}px, ${canvasOffset.y % 40}px)`,
-          }}
-        />
-
-        {/* Canvas Controls */}
-        <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
-          <button
-            onClick={() => setCanvasOffset({ x: 0, y: 0 })}
-            className="p-2 bg-white shadow-md rounded-lg text-slate-600 hover:text-slate-900"
-            title="Reset view"
-          >
-            <Target className="w-5 h-5" />
-          </button>
+        {/* Pan Hint */}
+        <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 bg-white rounded-lg shadow-sm text-xs text-slate-500">
+          <Move className="w-3.5 h-3.5" />
+          <span>Hold <kbd className="px-1.5 py-0.5 bg-slate-100 rounded font-mono">Space</kbd> + drag to pan</span>
         </div>
 
-        {/* Nodes Container */}
+        {/* Grid Container - This pans */}
         <div 
-          className="absolute inset-0"
+          ref={containerRef}
+          data-canvas="true"
+          className={`absolute inset-0 ${cursorStyle}`}
           style={{
             transform: `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`,
           }}
+          onMouseDown={handleCanvasMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
         >
+          {/* Grid Pattern - Large enough to pan around */}
+          <div 
+            className="absolute -top-[1000px] -left-[1000px] w-[3000px] h-[3000px] pointer-events-none"
+            style={{
+              backgroundImage: `
+                linear-gradient(to right, #cbd5e1 1px, transparent 1px),
+                linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)
+              `,
+              backgroundSize: '40px 40px',
+            }}
+          />
+
+          {/* Center Marker */}
+          <div className="absolute top-1/2 left-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <div className="w-full h-full border-2 border-slate-300 rounded-full opacity-50" />
+          </div>
+
           {/* Connection Lines */}
-          <svg className="absolute inset-0 pointer-events-none" style={{ width: '100%', height: '100%' }}>
-            {nodes.map((node, i) => 
-              nodes.slice(i + 1).map((otherNode) => {
+          <svg className="absolute inset-0 pointer-events-none" style={{ width: '3000px', height: '3000px', left: '-1000px', top: '-1000px' }}>
+            {nodes.filter(n => !n.isLoading).map((node, i) => 
+              nodes.filter(n => !n.isLoading).slice(i + 1).map((otherNode) => {
                 const distance = Math.sqrt(
                   Math.pow(node.x - otherNode.x, 2) + 
                   Math.pow(node.y - otherNode.y, 2)
@@ -353,10 +428,10 @@ export default function BrainstormPage() {
                   return (
                     <line
                       key={`${node.id}-${otherNode.id}`}
-                      x1={node.x + 150}
-                      y1={node.y + 50}
-                      x2={otherNode.x + 150}
-                      y2={otherNode.y + 50}
+                      x1={node.x + 100}
+                      y1={node.y + 40}
+                      x2={otherNode.x + 100}
+                      y2={otherNode.y + 40}
                       stroke="#cbd5e1"
                       strokeWidth="1"
                       strokeDasharray="4 4"
@@ -380,69 +455,81 @@ export default function BrainstormPage() {
                   key={node.id}
                   initial={{ scale: 0, opacity: 0 }}
                   animate={{ 
-                    scale: 1, 
-                    opacity: 1,
+                    scale: node.isLoading ? 0.9 : 1, 
+                    opacity: node.isLoading ? 0.7 : 1,
                     x: node.x,
                     y: node.y,
                   }}
                   exit={{ scale: 0, opacity: 0 }}
-                  className={`absolute ${nodeColors[node.type]} ${isSelected ? 'ring-2 ring-offset-2 ring-slate-400' : ''} rounded-xl p-4 min-w-[200px] max-w-[300px] shadow-sm border-2 cursor-move`}
-                  onMouseDown={(e) => handleMouseDown(e, node.id)}
-                  onClick={(e) => e.stopPropagation()}
+                  transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                  className={`absolute ${nodeColors[node.type]} ${isSelected ? 'ring-2 ring-offset-2 ring-slate-400' : ''} rounded-xl p-4 min-w-[200px] max-w-[280px] shadow-sm border-2 ${node.isLoading ? '' : 'cursor-move'}`}
+                  onMouseDown={(e) => !node.isLoading && handleNodeMouseDown(e, node.id)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (!node.isLoading) setSelectedNode(node.id)
+                  }}
                 >
-                  <div className="flex items-start gap-3">
-                    <Icon className="w-5 h-5 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      {isSelected ? (
-                        <textarea
-                          value={node.content}
-                          onChange={(e) => updateNode(node.id, { content: e.target.value })}
-                          placeholder="Enter content..."
-                          className="w-full bg-transparent border-none outline-none resize-none text-sm"
-                          rows={2}
-                          autoFocus
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') setSelectedNode(null)
+                  {node.isLoading ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="w-6 h-6 animate-spin opacity-50" />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start gap-3">
+                        <Icon className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          {isSelected ? (
+                            <textarea
+                              value={node.content}
+                              onChange={(e) => updateNode(node.id, { content: e.target.value })}
+                              placeholder="Enter content..."
+                              className="w-full bg-transparent border-none outline-none resize-none text-sm"
+                              rows={2}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') setSelectedNode(null)
+                              }}
+                            />
+                          ) : (
+                            <p className="text-sm font-medium break-words">
+                              {node.content || <span className="opacity-50">Click to edit...</span>}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            deleteNode(node.id)
                           }}
-                        />
-                      ) : (
-                        <p className="text-sm font-medium break-words">
-                          {node.content || <span className="opacity-50">Click to edit...</span>}
-                        </p>
+                          className="text-current opacity-50 hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      
+                      {/* Node Actions */}
+                      {isSelected && node.content && (
+                        <div className="mt-3 pt-3 border-t border-current border-opacity-20 flex gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleExpandIdea(node.id)
+                            }}
+                            disabled={isGenerating}
+                            className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-white bg-opacity-50 rounded hover:bg-opacity-80 transition-colors disabled:opacity-50"
+                          >
+                            <Expand className="w-3 h-3" />
+                            {isGenerating ? 'Expanding...' : 'Expand'}
+                          </button>
+                        </div>
                       )}
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteNode(node.id)
-                      }}
-                      className="text-current opacity-50 hover:opacity-100 transition-opacity"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                  
-                  {/* Node Actions */}
-                  {isSelected && node.content && (
-                    <div className="mt-3 pt-3 border-t border-current border-opacity-20 flex gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleExpandIdea(node.id)
-                        }}
-                        disabled={isGenerating}
-                        className="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-white bg-opacity-50 rounded hover:bg-opacity-80 transition-colors"
-                      >
-                        <Expand className="w-3 h-3" />
-                        Expand
-                      </button>
-                    </div>
+                      
+                      <div className="mt-2 text-xs opacity-60 capitalize flex items-center gap-1">
+                        <MousePointer2 className="w-3 h-3" />
+                        {node.type}
+                      </div>
+                    </>
                   )}
-                  
-                  <div className="mt-2 text-xs opacity-60 capitalize flex items-center gap-1">
-                    <Grip className="w-3 h-3" />
-                    {node.type}
-                  </div>
                 </motion.div>
               )
             })}
@@ -450,18 +537,29 @@ export default function BrainstormPage() {
         </div>
 
         {/* Instructions overlay */}
-        {nodes.length === 0 && (
+        {nodes.filter(n => !n.isLoading).length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="text-center text-slate-400">
               <Lightbulb className="w-12 h-12 mx-auto mb-4 opacity-50" />
               <p className="text-lg font-medium">Start brainstorming</p>
               <p className="text-sm mt-1">Type a prompt above or click the buttons to add ideas</p>
-              <p className="text-xs mt-4 text-slate-400">
-                Tip: Drag to move ideas • Drag canvas to pan • Click idea to edit
+              <p className="text-xs mt-4 text-slate-400 max-w-xs">
+                Tips: Hold Space + drag to pan • Drag ideas to move • Click idea to edit • Select + Expand to branch
               </p>
             </div>
           </div>
         )}
+
+        {/* Canvas Controls */}
+        <div className="absolute bottom-4 right-4 flex flex-col gap-2 z-10">
+          <button
+            onClick={() => setCanvasOffset({ x: 0, y: 0 })}
+            className="p-2 bg-white shadow-md rounded-lg text-slate-600 hover:text-slate-900 hover:shadow-lg transition-all"
+            title="Reset view"
+          >
+            <Target className="w-5 h-5" />
+          </button>
+        </div>
       </div>
 
       {/* Legend & Stats */}
@@ -476,7 +574,8 @@ export default function BrainstormPage() {
           ))}
         </div>
         <div className="text-sm text-slate-500">
-          {nodes.length} {nodes.length === 1 ? 'idea' : 'ideas'}
+          {nodes.filter(n => !n.isLoading).length} {nodes.filter(n => !n.isLoading).length === 1 ? 'idea' : 'ideas'}
+          {isGenerating && <span className="ml-2 text-blue-500">(generating...)</span>}
         </div>
       </div>
     </div>

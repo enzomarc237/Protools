@@ -12,90 +12,13 @@ const nodeInput = z.object({
 })
 
 export const brainstormRouter = createTRPCRouter({
-  getByProject: protectedProcedure
-    .input(z.object({ projectId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      return ctx.prisma.brainstormNode.findMany({
-        where: {
-          projectId: input.projectId,
-          project: {
-            userId: ctx.session.user.id,
-          },
-        },
-        orderBy: { createdAt: "desc" },
-      })
-    }),
-
-  create: protectedProcedure
-    .input(z.object({
-      projectId: z.string(),
-      ...nodeInput.shape,
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const { projectId, ...data } = input
-      
-      // Verify project ownership
-      const project = await ctx.prisma.project.findFirst({
-        where: {
-          id: projectId,
-          userId: ctx.session.user.id,
-        },
-      })
-
-      if (!project) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" })
-      }
-
-      return ctx.prisma.brainstormNode.create({
-        data: {
-          ...data,
-          projectId,
-        },
-      })
-    }),
-
-  update: protectedProcedure
-    .input(z.object({
-      id: z.string(),
-      data: nodeInput.partial(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      const node = await ctx.prisma.brainstormNode.findFirst({
-        where: {
-          id: input.id,
-          project: {
-            userId: ctx.session.user.id,
-          },
-        },
-      })
-
-      if (!node) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Node not found" })
-      }
-
-      return ctx.prisma.brainstormNode.update({
-        where: { id: input.id },
-        data: input.data,
-      })
-    }),
-
-  delete: protectedProcedure
-    .input(z.object({ id: z.string() }))
-    .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.brainstormNode.deleteMany({
-        where: {
-          id: input.id,
-          project: {
-            userId: ctx.session.user.id,
-          },
-        },
-      })
-    }),
-
   generateIdeas: protectedProcedure
     .input(z.object({
-      projectId: z.string(),
       prompt: z.string(),
+      context: z.object({
+        projectTitle: z.string().optional(),
+        projectDescription: z.string().optional(),
+      }).optional(),
       existingNodes: z.array(z.object({
         content: z.string(),
         type: z.string(),
@@ -114,18 +37,6 @@ export const brainstormRouter = createTRPCRouter({
         })
       }
 
-      // Get project context
-      const project = await ctx.prisma.project.findFirst({
-        where: {
-          id: input.projectId,
-          userId: ctx.session.user.id,
-        },
-      })
-
-      if (!project) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Project not found" })
-      }
-
       try {
         const provider = AIProviderFactory.create(
           settings.provider as any,
@@ -138,6 +49,10 @@ export const brainstormRouter = createTRPCRouter({
         // Build context from existing nodes
         const existingContext = input.existingNodes && input.existingNodes.length > 0
           ? `\n\nExisting ideas in this brainstorm:\n${input.existingNodes.map(n => `- ${n.type}: ${n.content}`).join("\n")}`
+          : ""
+
+        const projectContext = input.context?.projectTitle 
+          ? `Project: ${input.context.projectTitle}\nDescription: ${input.context.projectDescription || ''}\n\n`
           : ""
 
         const systemPrompt = `You are an expert product strategist and creative consultant specializing in brainstorming and ideation.
@@ -161,10 +76,7 @@ Guidelines:
 - Cover different angles (user needs, technical aspects, business concerns)
 - Include a mix of types (not just features)`
 
-        const userPrompt = `Project: ${project.title}
-Description: ${project.description}
-
-User request: ${input.prompt}${existingContext}
+        const userPrompt = `${projectContext}User request: ${input.prompt}${existingContext}
 
 Generate ideas in the specified JSON format.`
 
@@ -208,9 +120,12 @@ Generate ideas in the specified JSON format.`
 
   expandIdea: protectedProcedure
     .input(z.object({
-      projectId: z.string(),
       ideaContent: z.string(),
       ideaType: z.string(),
+      context: z.object({
+        projectTitle: z.string().optional(),
+        projectDescription: z.string().optional(),
+      }).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const settings = await ctx.prisma.aISettings.findUnique({
@@ -233,6 +148,10 @@ Generate ideas in the specified JSON format.`
           }
         )
 
+        const projectContext = input.context?.projectTitle 
+          ? `Project: ${input.context.projectTitle}\nDescription: ${input.context.projectDescription || ''}\n\n`
+          : ""
+
         const systemPrompt = `You are an expert product strategist. Expand on the given idea by generating related sub-ideas or breaking it down into actionable components.
 
 Respond in JSON format as an array:
@@ -244,7 +163,7 @@ Respond in JSON format as an array:
 
 Generate 3-4 related ideas.`
 
-        const userPrompt = `Expand on this ${input.ideaType}: "${input.ideaContent}"
+        const userPrompt = `${projectContext}Expand on this ${input.ideaType}: "${input.ideaContent}"
 
 Generate related ideas in JSON format.`
 
