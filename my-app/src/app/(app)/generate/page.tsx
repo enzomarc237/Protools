@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { motion } from "framer-motion"
-import { Sparkles, ArrowRight, Loader2, CheckCircle } from "lucide-react"
+import { Sparkles, ArrowRight, Loader2, CheckCircle, Wand2 } from "lucide-react"
 import { api } from "@/lib/trpc"
 import { useRouter } from "next/navigation"
 
@@ -25,25 +25,41 @@ export default function GeneratePage() {
     selectedTypes: ["prd"] as string[],
   })
   const [isGenerating, setIsGenerating] = useState(false)
+  const [generationProgress, setGenerationProgress] = useState<{[key: string]: string}>({})
   const [generatedProjectId, setGeneratedProjectId] = useState<string | null>(null)
+  const [error, setError] = useState("")
 
-  const createProject = api.project.create.useMutation({
-    onSuccess: (data) => {
-      setGeneratedProjectId(data.id)
-      generateDocuments(data.id)
-    },
-  })
+  const createProject = api.project.create.useMutation()
+  const generateDocument = api.ai.generateDocumentMutation.useMutation()
 
-  const generateDocument = api.ai.generateDocument.useMutation()
+  const handleSubmit = async () => {
+    if (step < 3) {
+      setStep(step + 1)
+      return
+    }
 
-  const generateDocuments = async (projectId: string) => {
     setIsGenerating(true)
-    
+    setError("")
+    setGenerationProgress({})
+
     try {
+      // Create project first
+      const project = await createProject.mutateAsync({
+        title: formData.title,
+        description: formData.description,
+        targetAudience: formData.targetAudience || undefined,
+        constraints: formData.constraints || undefined,
+        techStack: formData.techStack || undefined,
+      })
+
+      setGeneratedProjectId(project.id)
+
+      // Generate documents sequentially
       for (const type of formData.selectedTypes) {
-        // Start generation for each document type
+        setGenerationProgress(prev => ({ ...prev, [type]: "generating" }))
+        
         await generateDocument.mutateAsync({
-          projectId,
+          projectId: project.id,
           type: type as "prd" | "tech-spec" | "design-spec" | "plan",
           context: {
             idea: formData.description,
@@ -52,30 +68,17 @@ export default function GeneratePage() {
             techStack: formData.techStack || undefined,
           },
         })
+
+        setGenerationProgress(prev => ({ ...prev, [type]: "complete" }))
       }
-      
+
       // Navigate to the project
-      router.push(`/project/${projectId}`)
-    } catch (error) {
-      console.error("Generation error:", error)
+      router.push(`/project/${project.id}`)
+    } catch (err) {
+      console.error("Generation error:", err)
+      setError(err instanceof Error ? err.message : "Failed to generate documents")
       setIsGenerating(false)
     }
-  }
-
-  const handleSubmit = async () => {
-    if (step < 3) {
-      setStep(step + 1)
-      return
-    }
-
-    // Create project first
-    await createProject.mutateAsync({
-      title: formData.title,
-      description: formData.description,
-      targetAudience: formData.targetAudience || undefined,
-      constraints: formData.constraints || undefined,
-      techStack: formData.techStack || undefined,
-    })
   }
 
   const toggleDocumentType = (typeId: string) => {
@@ -87,12 +90,61 @@ export default function GeneratePage() {
     }))
   }
 
+  if (isGenerating) {
+    return (
+      <div className="max-w-2xl mx-auto text-center py-20">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white p-12 rounded-2xl shadow-sm border border-slate-100"
+        >
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Wand2 className="w-10 h-10 text-white animate-pulse" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-4">Generating your documents...</h2>
+          <p className="text-slate-600 mb-8">This may take a minute or two depending on the complexity.</p>
+          
+          <div className="space-y-3 max-w-md mx-auto">
+            {formData.selectedTypes.map((type) => {
+              const docType = documentTypes.find(d => d.id === type)
+              const status = generationProgress[type]
+              
+              return (
+                <div key={type} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
+                  {status === "complete" ? (
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                  ) : status === "generating" ? (
+                    <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full border-2 border-slate-300" />
+                  )}
+                  <span className={`flex-1 text-left ${status === "complete" ? "text-slate-700" : "text-slate-500"}`}>
+                    {docType?.label}
+                  </span>
+                  {status === "generating" && (
+                    <span className="text-xs text-blue-500">Generating...</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </motion.div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">Generate Documentation</h1>
         <p className="text-slate-600 mt-1">Transform your idea into comprehensive product documentation</p>
       </div>
+
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl">
+          {error}
+        </div>
+      )}
 
       {/* Progress */}
       <div className="flex items-center gap-2 mb-8">
@@ -214,7 +266,7 @@ export default function GeneratePage() {
                   }`}
                 >
                   <div
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    className={`w-6 h-6 rounded border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
                       formData.selectedTypes.includes(type.id)
                         ? "border-blue-500 bg-blue-500"
                         : "border-slate-300"
@@ -238,7 +290,7 @@ export default function GeneratePage() {
         <div className="flex justify-between mt-8 pt-6 border-t border-slate-100">
           <button
             onClick={() => setStep(step - 1)}
-            disabled={step === 1 || isGenerating}
+            disabled={step === 1}
             className="px-6 py-3 text-slate-600 font-medium hover:text-slate-900 transition-colors disabled:opacity-50"
           >
             Back
@@ -247,18 +299,12 @@ export default function GeneratePage() {
           <button
             onClick={handleSubmit}
             disabled={
-              isGenerating ||
               (step === 1 && (!formData.title || !formData.description)) ||
               (step === 3 && formData.selectedTypes.length === 0)
             }
             className="flex items-center gap-2 bg-slate-900 text-white px-8 py-3 rounded-xl font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50"
           >
-            {isGenerating ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Generating...
-              </>
-            ) : step === 3 ? (
+            {step === 3 ? (
               <>
                 <Sparkles className="w-5 h-5" />
                 Generate Documents

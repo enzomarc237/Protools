@@ -1,6 +1,7 @@
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc"
 import { z } from "zod"
 import { AIService } from "@/server/ai/service"
+import { observable } from "@trpc/server/observable"
 
 const generateInput = z.object({
   projectId: z.string(),
@@ -16,7 +17,7 @@ const generateInput = z.object({
 export const aiRouter = createTRPCRouter({
   generateDocument: protectedProcedure
     .input(generateInput)
-    .mutation(async function* ({ ctx, input }) {
+    .subscription(async function* ({ ctx, input }) {
       const aiService = new AIService(ctx.prisma, ctx.session.user.id)
       
       try {
@@ -25,6 +26,29 @@ export const aiRouter = createTRPCRouter({
         for await (const chunk of stream) {
           yield chunk
         }
+      } catch (error) {
+        console.error("AI generation error:", error)
+        throw error
+      }
+    }),
+
+  generateDocumentMutation: protectedProcedure
+    .input(generateInput)
+    .mutation(async ({ ctx, input }) => {
+      const aiService = new AIService(ctx.prisma, ctx.session.user.id)
+      
+      const chunks: string[] = []
+      
+      try {
+        const stream = await aiService.generateDocument(input)
+        
+        for await (const chunk of stream) {
+          if (chunk.chunk) {
+            chunks.push(chunk.chunk)
+          }
+        }
+        
+        return { success: true, content: chunks.join("") }
       } catch (error) {
         console.error("AI generation error:", error)
         throw error
