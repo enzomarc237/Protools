@@ -3,10 +3,10 @@
 import { useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { motion } from "framer-motion"
-import { FileText, Download, Loader2, Save, Edit2, Eye, History, Trash2, AlertCircle } from "lucide-react"
+import { FileText, Download, Loader2, Save, Edit2, History, Trash2, Maximize2, Minimize2 } from "lucide-react"
 import { api } from "@/lib/trpc"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
+import { MarkdownViewer } from "@/components/ui/markdown-viewer"
+import { TableOfContents } from "@/components/ui/table-of-contents"
 import { exportDocument, downloadBlob, ExportFormat } from "@/lib/export"
 import { toast } from "sonner"
 
@@ -26,6 +26,7 @@ export default function ProjectPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState("")
   const [showVersions, setShowVersions] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   
   const { data: project, isLoading, refetch } = api.project.getById.useQuery(
     { id: id as string },
@@ -201,7 +202,7 @@ export default function ProjectPage() {
         </div>
 
         {/* Document Viewer */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 xl:col-span-2">
           {selectedDocument ? (
             <motion.div
               initial={{ opacity: 0 }}
@@ -211,9 +212,16 @@ export default function ProjectPage() {
               {/* Toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-4 border-b border-slate-100">
                 <div className="flex items-center gap-4">
-                  <h3 className="font-semibold text-slate-900">
-                    {selectedDocument.title}
-                  </h3>
+                  <div>
+                    <h3 className="font-semibold text-slate-900">
+                      {selectedDocument.title}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
+                      <span>{selectedDocument.content.split(/\s+/).filter(Boolean).length} words</span>
+                      <span>•</span>
+                      <span>{Math.ceil(selectedDocument.content.split(/\s+/).filter(Boolean).length / 200)} min read</span>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => isEditing ? handleSave() : handleEdit()}
@@ -255,6 +263,14 @@ export default function ProjectPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                    title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                  >
+                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                  </button>
+                  <div className="w-px h-4 bg-slate-200 mx-1" />
                   <span className="text-xs text-slate-400 mr-2">Export:</span>
                   {(["markdown", "pdf", "docx", "json"] as ExportFormat[]).map((format) => (
                     <button
@@ -274,7 +290,7 @@ export default function ProjectPage() {
               </div>
 
               {/* Content */}
-              <div className="p-6 max-h-[70vh] overflow-y-auto">
+              <div className={`p-6 overflow-y-auto ${isFullscreen ? 'fixed inset-0 z-50 max-h-screen' : 'max-h-[70vh]'}`}>
                 {showVersions ? (
                   <div className="space-y-4">
                     <h4 className="font-medium text-slate-900 mb-4">Version History</h4>
@@ -306,11 +322,7 @@ export default function ProjectPage() {
                     className="w-full h-[60vh] p-4 font-mono text-sm bg-slate-50 border border-slate-200 rounded-xl resize-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
                   />
                 ) : (
-                  <div className="prose prose-slate max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {selectedDocument.content}
-                    </ReactMarkdown>
-                  </div>
+                  <MarkdownViewer content={selectedDocument.content} />
                 )}
               </div>
             </motion.div>
@@ -321,6 +333,11 @@ export default function ProjectPage() {
             </div>
           )}
         </div>
+
+        {/* Table of Contents Sidebar */}
+        {selectedDocument && !isEditing && !showVersions && (
+          <TableOfContents content={selectedDocument.content} />
+        )}
       </div>
     </div>
   )
