@@ -278,7 +278,7 @@ export default function ProjectPage() {
                 {showVersions ? (
                   <div className="space-y-4">
                     <h4 className="font-medium text-slate-900 mb-4">Version History</h4>
-                    {selectedDocument.versions.length === 0 ? (
+                    {!selectedDocument.versions || selectedDocument.versions.length === 0 ? (
                       <p className="text-slate-500 text-sm">No previous versions.</p>
                     ) : (
                       selectedDocument.versions.map((version) => (

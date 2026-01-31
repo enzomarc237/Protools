@@ -33,6 +33,11 @@ export const projectRouter = createTRPCRouter({
         include: {
           documents: {
             orderBy: { createdAt: "desc" },
+            include: {
+              versions: {
+                orderBy: { createdAt: "desc" },
+              },
+            },
           },
           brainstormNodes: true,
         },
